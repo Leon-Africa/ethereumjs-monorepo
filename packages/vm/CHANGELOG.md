@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 
 **New Features**
 
+- Report dynamic gas values in `fee` field of `step` event, PR [#1364](https://github.com/ethereumjs/ethereumjs-monorepo/pull/1364)
+
 **Bug Fixes**
 
 - Fix EIP1559 bug to include tx value in balance check, fix nonce check, PR [#1372](https://github.com/ethereumjs/ethereumjs-monorepo/pull/1372)
