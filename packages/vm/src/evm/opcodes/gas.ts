@@ -1,13 +1,13 @@
+import Common from '@ethereumjs/common'
 import {
   addressToBuffer,
   divCeil,
-  getContractStorage,
   maxCallGas,
   setLengthLeftStorage,
   subMemUsage,
   trap,
   updateSstoreGas,
-} from '.'
+} from './'
 import { Address, BN } from '../../../../util/dist'
 import { ERROR } from '../../exceptions'
 import { RunState } from '../interpreter'
@@ -25,150 +25,140 @@ import { accessAddressEIP2929, accessStorageEIP2929 } from './EIP2929'
 // The gas BN is necessary, since the base fee needs to be included,
 // to calculate the max call gas for the call opcodes correctly.
 export interface AsyncDynamicGasHandler {
-  (runState: RunState, gas: BN): Promise<void>
+  (runState: RunState, gas: BN, common: Common): Promise<void>
 }
 
 export const dynamicGasHandlers: Map<number, AsyncDynamicGasHandler> = new Map([
   [
     /* SHA3 */
     0x20,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       const [offset, length] = runState.stack.peek(2)
-      gas.iadd(subMemUsage(runState, offset, length))
-      gas.iadd(
-        new BN(runState._common.param('gasPrices', 'sha3Word')).imul(divCeil(length, new BN(32)))
-      )
+      gas.iadd(subMemUsage(runState, offset, length, common))
+      gas.iadd(new BN(common.param('gasPrices', 'sha3Word')).imul(divCeil(length, new BN(32))))
     },
   ],
   [
     /* BALANCE */
     0x31,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       const addressBN = runState.stack.peek()[0]
       const address = new Address(addressToBuffer(addressBN))
-      gas.iadd(accessAddressEIP2929(runState, address))
+      gas.iadd(accessAddressEIP2929(runState, address, common))
     },
   ],
   [
     /* CALLDATACOPY */
     0x37,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       const [memOffset, _dataOffset, dataLength] = runState.stack.peek(3)
 
-      gas.iadd(subMemUsage(runState, memOffset, dataLength))
+      gas.iadd(subMemUsage(runState, memOffset, dataLength, common))
       if (!dataLength.eqn(0)) {
-        gas.iadd(
-          new BN(runState._common.param('gasPrices', 'copy')).imul(divCeil(dataLength, new BN(32)))
-        )
+        gas.iadd(new BN(common.param('gasPrices', 'copy')).imul(divCeil(dataLength, new BN(32))))
       }
     },
   ],
   [
     /* CODECOPY */
     0x39,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       const [memOffset, _codeOffset, dataLength] = runState.stack.peek(3)
 
-      gas.iadd(subMemUsage(runState, memOffset, dataLength))
+      gas.iadd(subMemUsage(runState, memOffset, dataLength, common))
       if (!dataLength.eqn(0)) {
-        gas.iadd(
-          new BN(runState._common.param('gasPrices', 'copy')).imul(divCeil(dataLength, new BN(32)))
-        )
+        gas.iadd(new BN(common.param('gasPrices', 'copy')).imul(divCeil(dataLength, new BN(32))))
       }
     },
   ],
   [
     /* EXTCODESIZE */
     0x3b,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       const addressBN = runState.stack.peek()[0]
       const address = new Address(addressToBuffer(addressBN))
-      gas.iadd(accessAddressEIP2929(runState, address))
+      gas.iadd(accessAddressEIP2929(runState, address, common))
     },
   ],
   [
     /* EXTCODECOPY */
     0x3c,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       const [addressBN, memOffset, _codeOffset, dataLength] = runState.stack.peek(4)
 
-      gas.iadd(subMemUsage(runState, memOffset, dataLength))
+      gas.iadd(subMemUsage(runState, memOffset, dataLength, common))
       const address = new Address(addressToBuffer(addressBN))
-      gas.iadd(accessAddressEIP2929(runState, address))
+      gas.iadd(accessAddressEIP2929(runState, address, common))
 
       if (!dataLength.eqn(0)) {
-        gas.iadd(
-          new BN(runState._common.param('gasPrices', 'copy')).imul(divCeil(dataLength, new BN(32)))
-        )
+        gas.iadd(new BN(common.param('gasPrices', 'copy')).imul(divCeil(dataLength, new BN(32))))
       }
     },
   ],
   [
     /* RETURNDATACOPY */
     0x3e,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       const [memOffset, returnDataOffset, dataLength] = runState.stack.peek(3)
 
       if (returnDataOffset.add(dataLength).gt(runState.eei.getReturnDataSize())) {
         trap(ERROR.OUT_OF_GAS)
       }
 
-      gas.iadd(subMemUsage(runState, memOffset, dataLength))
+      gas.iadd(subMemUsage(runState, memOffset, dataLength, common))
 
       if (!dataLength.eqn(0)) {
-        gas.iadd(
-          new BN(runState._common.param('gasPrices', 'copy')).mul(divCeil(dataLength, new BN(32)))
-        )
+        gas.iadd(new BN(common.param('gasPrices', 'copy')).mul(divCeil(dataLength, new BN(32))))
       }
     },
   ],
   [
     /* EXTCODEHASH */
     0x3f,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       const addressBN = runState.stack.peek()[0]
       const address = new Address(addressToBuffer(addressBN))
-      gas.iadd(accessAddressEIP2929(runState, address))
+      gas.iadd(accessAddressEIP2929(runState, address, common))
     },
   ],
   [
     /* MLOAD */
     0x51,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       const pos = runState.stack.peek()[0]
-      gas.iadd(subMemUsage(runState, pos, new BN(32)))
+      gas.iadd(subMemUsage(runState, pos, new BN(32), common))
     },
   ],
   [
     /* MSTORE */
     0x52,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       const offset = runState.stack.peek()[0]
-      gas.iadd(subMemUsage(runState, offset, new BN(32)))
+      gas.iadd(subMemUsage(runState, offset, new BN(32), common))
     },
   ],
   [
     /* MSTORE8 */
     0x53,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       const offset = runState.stack.peek()[0]
-      gas.iadd(subMemUsage(runState, offset, new BN(1)))
+      gas.iadd(subMemUsage(runState, offset, new BN(1), common))
     },
   ],
   [
     /* SLOAD */
     0x54,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       const key = runState.stack.peek()[0]
       const keyBuf = key.toArrayLike(Buffer, 'be', 32)
 
-      gas.iadd(accessStorageEIP2929(runState, keyBuf, false))
+      gas.iadd(accessStorageEIP2929(runState, keyBuf, false, common))
     },
   ],
   [
     /* SSTORE */
     0x55,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       if (runState.eei.isStatic()) {
         trap(ERROR.STATIC_STATE_CHANGE)
       }
@@ -183,26 +173,47 @@ export const dynamicGasHandlers: Map<number, AsyncDynamicGasHandler> = new Map([
         value = val.toArrayLike(Buffer, 'be')
       }
 
-      // TODO: Replace getContractStorage with EEI method
-      const found = await getContractStorage(runState, runState.eei.getAddress(), keyBuf)
-      if (runState._common.hardfork() === 'constantinople') {
-        gas.iadd(updateSstoreGasEIP1283(runState, found, setLengthLeftStorage(value)))
-      } else if (runState._common.gteHardfork('istanbul')) {
-        gas.iadd(updateSstoreGasEIP2200(runState, found, setLengthLeftStorage(value), keyBuf))
+      const currentStorage = setLengthLeftStorage(await runState.eei.storageLoad(keyBuf))
+      if (common.hardfork() === 'constantinople' || common.gteHardfork('istanbul')) {
+        const originalStorage = setLengthLeftStorage(await runState.eei.storageLoad(keyBuf, true))
+        if (common.hardfork() === 'constantinople') {
+          gas.iadd(
+            updateSstoreGasEIP1283(
+              runState,
+              currentStorage,
+              originalStorage,
+              setLengthLeftStorage(value),
+              common
+            )
+          )
+        } else {
+          gas.iadd(
+            updateSstoreGasEIP2200(
+              runState,
+              currentStorage,
+              originalStorage,
+              setLengthLeftStorage(value),
+              keyBuf,
+              common
+            )
+          )
+        }
       } else {
-        gas.iadd(updateSstoreGas(runState, found, setLengthLeftStorage(value), keyBuf))
+        gas.iadd(
+          updateSstoreGas(runState, currentStorage, setLengthLeftStorage(value), keyBuf, common)
+        )
       }
 
       // We have to do this after the Istanbul (EIP2200) checks.
       // Otherwise, we might run out of gas, due to "sentry check" of 2300 gas,
       // if we deduct extra gas first.
-      gas.iadd(accessStorageEIP2929(runState, keyBuf, true))
+      gas.iadd(accessStorageEIP2929(runState, keyBuf, true, common))
     },
   ],
   [
     /* LOG */
     0xa0,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       if (runState.eei.isStatic()) {
         trap(ERROR.STATIC_STATE_CHANGE)
       }
@@ -215,29 +226,29 @@ export const dynamicGasHandlers: Map<number, AsyncDynamicGasHandler> = new Map([
         trap(ERROR.OUT_OF_RANGE)
       }
 
-      gas.iadd(subMemUsage(runState, memOffset, memLength))
+      gas.iadd(subMemUsage(runState, memOffset, memLength, common))
       gas.iadd(
-        new BN(runState._common.param('gasPrices', 'logTopic'))
+        new BN(common.param('gasPrices', 'logTopic'))
           .imuln(topicsCount)
-          .iadd(memLength.muln(runState._common.param('gasPrices', 'logData')))
+          .iadd(memLength.muln(common.param('gasPrices', 'logData')))
       )
     },
   ],
   [
     /* CREATE */
     0xf0,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       if (runState.eei.isStatic()) {
         trap(ERROR.STATIC_STATE_CHANGE)
       }
       const [_value, offset, length] = runState.stack.peek(3)
 
-      gas.iadd(accessAddressEIP2929(runState, runState.eei.getAddress(), false))
+      gas.iadd(accessAddressEIP2929(runState, runState.eei.getAddress(), common, false))
 
-      gas.iadd(subMemUsage(runState, offset, length))
+      gas.iadd(subMemUsage(runState, offset, length, common))
 
       let gasLimit = new BN(runState.eei.getGasLeft().isub(gas))
-      gasLimit = maxCallGas(gasLimit, gasLimit.clone(), runState)
+      gasLimit = maxCallGas(gasLimit, gasLimit.clone(), runState, common)
 
       runState.messageGasLimit = gasLimit
     },
@@ -245,7 +256,7 @@ export const dynamicGasHandlers: Map<number, AsyncDynamicGasHandler> = new Map([
   [
     /* CALL */
     0xf1,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       const [currentGasLimit, toAddr, value, inOffset, inLength, outOffset, outLength] =
         runState.stack.peek(7)
       const toAddress = new Address(addressToBuffer(toAddr))
@@ -253,31 +264,32 @@ export const dynamicGasHandlers: Map<number, AsyncDynamicGasHandler> = new Map([
       if (runState.eei.isStatic() && !value.isZero()) {
         trap(ERROR.STATIC_STATE_CHANGE)
       }
-      gas.iadd(subMemUsage(runState, inOffset, inLength))
-      gas.iadd(subMemUsage(runState, outOffset, outLength))
-      gas.iadd(accessAddressEIP2929(runState, toAddress))
+      gas.iadd(subMemUsage(runState, inOffset, inLength, common))
+      gas.iadd(subMemUsage(runState, outOffset, outLength, common))
+      gas.iadd(accessAddressEIP2929(runState, toAddress, common))
 
       if (!value.isZero()) {
-        gas.iadd(new BN(runState._common.param('gasPrices', 'callValueTransfer')))
+        gas.iadd(new BN(common.param('gasPrices', 'callValueTransfer')))
       }
 
-      if (runState._common.gteHardfork('spuriousDragon')) {
+      if (common.gteHardfork('spuriousDragon')) {
         // We are at or after Spurious Dragon
         // Call new account gas: account is DEAD and we transfer nonzero value
         if ((await runState.eei.isAccountEmpty(toAddress)) && !value.isZero()) {
-          gas.iadd(new BN(runState._common.param('gasPrices', 'callNewAccount')))
+          gas.iadd(new BN(common.param('gasPrices', 'callNewAccount')))
         }
       } else if (!(await runState.eei.accountExists(toAddress))) {
         // We are before Spurious Dragon and the account does not exist.
         // Call new account gas: account does not exist
         // (it is not in the state trie, not even as an "empty" account)
-        gas.iadd(new BN(runState._common.param('gasPrices', 'callNewAccount')))
+        gas.iadd(new BN(common.param('gasPrices', 'callNewAccount')))
       }
 
       const gasLimit = maxCallGas(
         currentGasLimit.clone(),
         runState.eei.getGasLeft().isub(gas),
-        runState
+        runState,
+        common
       )
       // note that TangerineWhistle or later this cannot happen
       // (it could have ran out of gas prior to getting here though)
@@ -291,8 +303,8 @@ export const dynamicGasHandlers: Map<number, AsyncDynamicGasHandler> = new Map([
 
       if (!value.isZero()) {
         // TODO: Don't use private attr directly
-        runState.eei._gasLeft.iaddn(runState._common.param('gasPrices', 'callStipend'))
-        gasLimit.iaddn(runState._common.param('gasPrices', 'callStipend'))
+        runState.eei._gasLeft.iaddn(common.param('gasPrices', 'callStipend'))
+        gasLimit.iaddn(common.param('gasPrices', 'callStipend'))
       }
 
       runState.messageGasLimit = gasLimit
@@ -301,22 +313,23 @@ export const dynamicGasHandlers: Map<number, AsyncDynamicGasHandler> = new Map([
   [
     /* CALLCODE */
     0xf2,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       const [currentGasLimit, toAddr, value, inOffset, inLength, outOffset, outLength] =
         runState.stack.peek(7)
       const toAddress = new Address(addressToBuffer(toAddr))
 
-      gas.iadd(subMemUsage(runState, inOffset, inLength))
-      gas.iadd(subMemUsage(runState, outOffset, outLength))
-      gas.iadd(accessAddressEIP2929(runState, toAddress))
+      gas.iadd(subMemUsage(runState, inOffset, inLength, common))
+      gas.iadd(subMemUsage(runState, outOffset, outLength, common))
+      gas.iadd(accessAddressEIP2929(runState, toAddress, common))
 
       if (!value.isZero()) {
-        gas.iadd(new BN(runState._common.param('gasPrices', 'callValueTransfer')))
+        gas.iadd(new BN(common.param('gasPrices', 'callValueTransfer')))
       }
       const gasLimit = maxCallGas(
         currentGasLimit.clone(),
         runState.eei.getGasLeft().isub(gas),
-        runState
+        runState,
+        common
       )
       // note that TangerineWhistle or later this cannot happen
       // (it could have ran out of gas prior to getting here though)
@@ -328,8 +341,8 @@ export const dynamicGasHandlers: Map<number, AsyncDynamicGasHandler> = new Map([
       }
       if (!value.isZero()) {
         // TODO: Don't use private attr directly
-        runState.eei._gasLeft.iaddn(runState._common.param('gasPrices', 'callStipend'))
-        gasLimit.iaddn(runState._common.param('gasPrices', 'callStipend'))
+        runState.eei._gasLeft.iaddn(common.param('gasPrices', 'callStipend'))
+        gasLimit.iaddn(common.param('gasPrices', 'callStipend'))
       }
 
       runState.messageGasLimit = gasLimit
@@ -338,26 +351,27 @@ export const dynamicGasHandlers: Map<number, AsyncDynamicGasHandler> = new Map([
   [
     /* RETURN */
     0xf3,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       const [offset, length] = runState.stack.peek(2)
-      gas.iadd(subMemUsage(runState, offset, length))
+      gas.iadd(subMemUsage(runState, offset, length, common))
     },
   ],
   [
     /* DELEGATECALL */
     0xf4,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       const [currentGasLimit, toAddr, inOffset, inLength, outOffset, outLength] =
         runState.stack.peek(6)
       const toAddress = new Address(addressToBuffer(toAddr))
 
-      gas.iadd(subMemUsage(runState, inOffset, inLength))
-      gas.iadd(subMemUsage(runState, outOffset, outLength))
-      gas.iadd(accessAddressEIP2929(runState, toAddress))
+      gas.iadd(subMemUsage(runState, inOffset, inLength, common))
+      gas.iadd(subMemUsage(runState, outOffset, outLength, common))
+      gas.iadd(accessAddressEIP2929(runState, toAddress, common))
       const gasLimit = maxCallGas(
         currentGasLimit.clone(),
         runState.eei.getGasLeft().isub(gas),
-        runState
+        runState,
+        common
       )
       // note that TangerineWhistle or later this cannot happen
       // (it could have ran out of gas prior to getting here though)
@@ -371,38 +385,37 @@ export const dynamicGasHandlers: Map<number, AsyncDynamicGasHandler> = new Map([
   [
     /* CREATE2 */
     0xf5,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       if (runState.eei.isStatic()) {
         trap(ERROR.STATIC_STATE_CHANGE)
       }
 
       const [_value, offset, length, _salt] = runState.stack.peek(4)
 
-      gas.iadd(subMemUsage(runState, offset, length))
-      gas.iadd(accessAddressEIP2929(runState, runState.eei.getAddress(), false))
-      gas.iadd(
-        new BN(runState._common.param('gasPrices', 'sha3Word')).imul(divCeil(length, new BN(32)))
-      )
+      gas.iadd(subMemUsage(runState, offset, length, common))
+      gas.iadd(accessAddressEIP2929(runState, runState.eei.getAddress(), common, false))
+      gas.iadd(new BN(common.param('gasPrices', 'sha3Word')).imul(divCeil(length, new BN(32))))
       let gasLimit = new BN(runState.eei.getGasLeft().isub(gas))
-      gasLimit = maxCallGas(gasLimit, gasLimit.clone(), runState) // CREATE2 is only available after TangerineWhistle (Constantinople introduced this opcode)
+      gasLimit = maxCallGas(gasLimit, gasLimit.clone(), runState, common) // CREATE2 is only available after TangerineWhistle (Constantinople introduced this opcode)
       runState.messageGasLimit = gasLimit
     },
   ],
   [
     /* STATICCALL */
     0xfa,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       const [currentGasLimit, toAddr, inOffset, inLength, outOffset, outLength] =
         runState.stack.peek(6)
       const toAddress = new Address(addressToBuffer(toAddr))
 
-      gas.iadd(subMemUsage(runState, inOffset, inLength))
-      gas.iadd(subMemUsage(runState, outOffset, outLength))
-      gas.iadd(accessAddressEIP2929(runState, toAddress))
+      gas.iadd(subMemUsage(runState, inOffset, inLength, common))
+      gas.iadd(subMemUsage(runState, outOffset, outLength, common))
+      gas.iadd(accessAddressEIP2929(runState, toAddress, common))
       const gasLimit = maxCallGas(
         currentGasLimit.clone(),
         runState.eei.getGasLeft().isub(gas),
-        runState
+        runState,
+        common
       ) // we set TangerineWhistle or later to true here, as STATICCALL was available from Byzantium (which is after TangerineWhistle)
 
       runState.messageGasLimit = gasLimit
@@ -411,15 +424,15 @@ export const dynamicGasHandlers: Map<number, AsyncDynamicGasHandler> = new Map([
   [
     /* REVERT */
     0xfd,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       const [offset, length] = runState.stack.peek(2)
-      gas.iadd(subMemUsage(runState, offset, length))
+      gas.iadd(subMemUsage(runState, offset, length, common))
     },
   ],
   [
     /* SELFDESTRUCT */
     0xff,
-    async function (runState: RunState, gas: BN): Promise<void> {
+    async function (runState, gas, common): Promise<void> {
       if (runState.eei.isStatic()) {
         trap(ERROR.STATIC_STATE_CHANGE)
       }
@@ -427,7 +440,7 @@ export const dynamicGasHandlers: Map<number, AsyncDynamicGasHandler> = new Map([
 
       const selfdestructToAddress = new Address(addressToBuffer(selfdestructToAddressBN))
       let deductGas = false
-      if (runState._common.gteHardfork('spuriousDragon')) {
+      if (common.gteHardfork('spuriousDragon')) {
         // EIP-161: State Trie Clearing
         const balance = await runState.eei.getExternalBalance(runState.eei.getAddress())
         if (balance.gtn(0)) {
@@ -438,7 +451,7 @@ export const dynamicGasHandlers: Map<number, AsyncDynamicGasHandler> = new Map([
             deductGas = true
           }
         }
-      } else if (runState._common.gteHardfork('tangerineWhistle')) {
+      } else if (common.gteHardfork('tangerineWhistle')) {
         // Pre EIP-150 (Tangerine Whistle) gas semantics
         const exists = await runState.stateManager.accountExists(selfdestructToAddress)
         if (!exists) {
@@ -446,10 +459,10 @@ export const dynamicGasHandlers: Map<number, AsyncDynamicGasHandler> = new Map([
         }
       }
       if (deductGas) {
-        gas.iadd(new BN(runState._common.param('gasPrices', 'callNewAccount')))
+        gas.iadd(new BN(common.param('gasPrices', 'callNewAccount')))
       }
 
-      gas.iadd(accessAddressEIP2929(runState, selfdestructToAddress, true, true))
+      gas.iadd(accessAddressEIP2929(runState, selfdestructToAddress, common, true, true))
     },
   ],
 ])

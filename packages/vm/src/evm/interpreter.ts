@@ -1,6 +1,5 @@
 import { debug as createDebugLogger } from 'debug'
 import { Account, Address, BN } from 'ethereumjs-util'
-import Common from '@ethereumjs/common'
 import { StateManager } from '../state/index'
 import { ERROR, VmError } from '../exceptions'
 import Memory from './memory'
@@ -24,7 +23,6 @@ export interface RunState {
   code: Buffer
   validJumps: number[]
   validJumpSubs: number[]
-  _common: Common
   stateManager: StateManager
   eei: EEI
   messageGasLimit?: BN // Cache value from `gas.ts` to save gas limit for a message call
@@ -70,10 +68,10 @@ export default class Interpreter {
   _eei: EEI
 
   // Opcode debuggers (e.g. { 'push': [debug Object], 'sstore': [debug Object], ...})
-  private opDebuggers: any = {}
+  private opDebuggers: { [key: string]: (debug: string) => void } = {}
 
   constructor(vm: any, eei: EEI) {
-    this._vm = vm // TODO: remove when not needed
+    this._vm = vm
     this._state = vm.stateManager
     this._eei = eei
     this._runState = {
@@ -87,8 +85,6 @@ export default class Interpreter {
       code: Buffer.alloc(0),
       validJumps: [],
       validJumpSubs: [],
-      // TODO: Replace with EEI methods
-      _common: this._vm._common,
       stateManager: this._state,
       eei: this._eei,
     }
@@ -151,7 +147,7 @@ export default class Interpreter {
       const dynamicGasHandler = dynamicGasHandlers.get(this._runState.opCode)!
       // This function updates the gas BN in-place using `i*` methods
       // It needs the base fee, for correct gas limit calculation for the CALL opcodes
-      await dynamicGasHandler(this._runState, gas)
+      await dynamicGasHandler(this._runState, gas, this._vm._common)
     }
 
     // TODO: figure out if we should try/catch this (in case step event throws)
@@ -170,9 +166,9 @@ export default class Interpreter {
     // Execute opcode handler
     const opFn = this.getOpHandler(opInfo)
     if (opInfo.isAsync) {
-      await (<AsyncOpHandler>opFn).apply(null, [this._runState])
+      await (opFn as AsyncOpHandler).apply(null, [this._runState, this._vm._common])
     } else {
-      opFn.apply(null, [this._runState])
+      opFn.apply(null, [this._runState, this._vm._common])
     }
   }
 
