@@ -78,7 +78,7 @@ export function accessStorageEIP2929(
  * @param  {RunState} runState
  * @param  {Buffer}   key          storage slot
  * @param  {number}   defaultCost  SSTORE_RESET_GAS / SLOAD
- * @param  {string}   costName     parameter name ('reset' or 'noop')
+ * @param  {string}   costName     parameter name ('noop')
  * @param  {Common}   common
  * @return {BN}                    adjusted cost
  */
@@ -98,8 +98,6 @@ export function adjustSstoreGasEIP2929(
 
   if (stateManager.isWarmedStorage(address, key)) {
     switch (costName) {
-      case 'reset':
-        return new BN(defaultCost).isubn(coldSload)
       case 'noop':
         return new BN(warmRead)
       case 'initRefund':
